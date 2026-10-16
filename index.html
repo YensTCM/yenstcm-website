@@ -276,19 +276,23 @@ var CONTENT_DATA={"products":[{"number":1,"title":"協助調理女性生理期�
       return file;
     }
   }
-  // Diagnostic switch: keep the compression path available, but send the original
-  // insurance-card files while this is false so the upload pipeline can be isolated.
+  // Keep the compression path available while the upload pipeline is being isolated.
   var INTAKE_IMAGE_COMPRESSION_ENABLED=false;
-  function readFileIntoMemory(file){return new Promise(function(resolve,reject){var reader=new FileReader();reader.onload=function(){resolve(reader.result)};reader.onerror=function(){reject(reader.error||new Error('File reading failed'))};reader.onabort=function(){reject(new Error('File reading was cancelled'))};reader.readAsArrayBuffer(file)})}
+  function readFileAsBase64(file){return new Promise(function(resolve,reject){var reader=new FileReader();reader.onload=function(){var dataUrl=reader.result;if(typeof dataUrl!=='string'){reject(new Error('File reading returned an invalid result'));return}var separator=dataUrl.indexOf(',');if(separator<0){reject(new Error('File reading returned an invalid data URL'));return}resolve(dataUrl.slice(separator+1))};reader.onerror=function(){reject(reader.error||new Error('File reading failed'))};reader.onabort=function(){reject(new Error('File reading was cancelled'))};reader.readAsDataURL(file)})}
   async function prepareInsuranceCards(formData){
     var inputs=[document.getElementById('insuranceFront'),document.getElementById('insuranceBack')];
     for(var i=0;i<inputs.length;i++){
-      var input=inputs[i],file=input&&input.files&&input.files[0];
+      var input=inputs[i],file=input&&input.files&&input.files[0],fieldName=input&&input.name;
+      if(!fieldName)continue;
+      // FormData(form) includes file inputs automatically. Remove those binary entries;
+      // insurance cards are sent only as ordinary text fields for the Worker to decode.
+      formData.delete(fieldName);
       if(!file)continue;
       var preparedFile=INTAKE_IMAGE_COMPRESSION_ENABLED?await compressIntakeImage(file):file;
-      var arrayBuffer=await readFileIntoMemory(preparedFile);
-      var memoryBlob=new Blob([arrayBuffer],{type:preparedFile.type});
-      formData.set(input.name,memoryBlob,preparedFile.name||file.name||'insurance-card');
+      var base64Data=await readFileAsBase64(preparedFile);
+      formData.append(fieldName+' data',base64Data);
+      formData.append(fieldName+' name',preparedFile.name||file.name||'insurance-card');
+      formData.append(fieldName+' type',preparedFile.type||file.type||'application/octet-stream');
     }
   }
   document.querySelectorAll('input[name="Insurance"]').forEach(function(field){field.addEventListener('change',updateInsurance)});document.querySelectorAll('input[name="Primary insured relationship"]').forEach(function(field){field.addEventListener('change',function(){updatePrimary(true)})});['intakeFirstName','intakeLastName','intakeDob'].forEach(function(id){document.getElementById(id).addEventListener('input',syncSelfInsured)});intakeForm.querySelectorAll('input,select').forEach(function(field){field.addEventListener('input',function(){field.classList.remove('invalid')});field.addEventListener('change',function(){field.classList.remove('invalid')})});document.getElementById('continueToConsent').addEventListener('click',function(){updateInsurance();if(validateIntakeStep(patientStep,patientStepError))setIntakeStep(2)});document.getElementById('backToPatient').addEventListener('click',function(){setIntakeStep(1)});intakeForm.addEventListener('submit',async function(e){e.preventDefault();document.activeElement.blur();updateInsurance();if(!validateIntakeStep(patientStep,patientStepError)){setIntakeStep(1);return}if(!validateIntakeStep(consentStep,consentStepError))return;var submissionErrorEl=document.getElementById('intakeSubmissionError');submissionErrorEl.classList.remove('show');submissionErrorEl.textContent='We could not send your form. Please check your connection and try again, or call the clinic at 703-595-2199.';setIntakeSubmitting(true);var pdfBlob;try{pdfBlob=await generateIntakePdf()}catch(pdfError){console.error('PDF generation failed; the intake was not submitted.',pdfError);submissionErrorEl.textContent='PDF generation failed, please try again';submissionErrorEl.classList.add('show');setIntakeSubmitting(false);return}var formData=new FormData(intakeForm),responseText;await prepareInsuranceCards(formData);formData.append('Submission date',intakeDateParts().display);formData.append('Intake PDF',pdfBlob,intakePdfFilename());try{responseText=await new Promise(function(resolve,reject){var xhr=new XMLHttpRequest();xhr.open('POST','/api/intake',true);xhr.timeout=60000;xhr.setRequestHeader('Accept','application/json');xhr.onload=function(){resolve(xhr.responseText)};xhr.onerror=function(){reject({type:'network',error:new Error('XMLHttpRequest network error')})};xhr.ontimeout=function(){reject({type:'timeout',error:new Error('XMLHttpRequest timed out after 60 seconds')})};xhr.send(formData)})}catch(networkError){console.error('Intake network request failed.',networkError&&networkError.error?networkError.error:networkError);submissionErrorEl.textContent=networkError&&networkError.type==='timeout'?'Submission timed out after 60 seconds. Please check your connection and try again.':'Network error, please check your connection';submissionErrorEl.classList.add('show');setIntakeSubmitting(false);return}var result;try{result=JSON.parse(responseText)}catch(responseError){console.error('The intake server returned an invalid response.',responseError);submissionErrorEl.textContent='Server returned an invalid response';submissionErrorEl.classList.add('show');setIntakeSubmitting(false);return}if(!result||result.ok!==true){submissionErrorEl.textContent=result&&result.error?String(result.error):'Submission failed';submissionErrorEl.classList.add('show');setIntakeSubmitting(false);return}window.location.hash='intake-success'});updateInsurance();setIntakeStep(1);
