@@ -516,10 +516,37 @@ function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g
 var fxColl=null;try{fxColl=new Intl.Collator('zh-Hans-CN-u-co-pinyin')}catch(e){fxColl=null}
 var FXBOUNDS=[['A','阿'],['B','芭'],['C','擦'],['D','搭'],['E','蛾'],['F','发'],['G','噶'],['H','哈'],['J','击'],['K','喀'],['L','拉'],['M','妈'],['N','拿'],['O','哦'],['P','啪'],['Q','期'],['R','然'],['S','撒'],['T','他'],['W','挖'],['X','昔'],['Y','压'],['Z','匝']];
 function cfLetter(name){
-  if(!fxColl||!name)return '#';
-  var L='A';
-  for(var i=0;i<FXBOUNDS.length;i++){if(fxColl.compare(name,FXBOUNDS[i][1])>=0)L=FXBOUNDS[i][0];else break}
-  return L;
+  name=(name==null?'':String(name)).trim();
+  if(!name)return '#';
+  var c0=name.charAt(0);
+  if(c0>='A'&&c0<='Z')return c0;
+  if(c0>='a'&&c0<='z')return c0.toUpperCase();
+  if(!fxColl)return '#';
+  try{
+    var L='A';
+    for(var i=0;i<FXBOUNDS.length;i++){if(fxColl.compare(name,FXBOUNDS[i][1])>=0)L=FXBOUNDS[i][0];else break}
+    return L;
+  }catch(e){return '#'}
+}
+function fxSanitizeClosed(list){
+  var out=[];
+  if(!Array.isArray(list))return out;
+  list.forEach(function(x,xi){
+    try{
+      if(!x||typeof x!=='object')return;
+      var nm=(x.name==null?'':String(x.name)).trim();
+      if(!nm)return;
+      var blocks=[];
+      if(Array.isArray(x.blocks)){
+        x.blocks.forEach(function(b){
+          if(!b||typeof b!=='object')return;
+          blocks.push({type:(b.type==null?'':String(b.type)),title:(b.title==null?'':String(b.title)),text:(b.text==null?'':String(b.text))});
+        });
+      }
+      out.push({name:nm,blocks:blocks});
+    }catch(e){if(window.console&&console.warn)console.warn('closed formula card skipped',xi,e)}
+  });
+  return out;
 }
 function fxCard(f){
   var u=FXUI[fxLang],i,s,items,notes;
@@ -539,11 +566,12 @@ function fxCard(f){
 }
 function cfCard(cf,ci){
   var T=L_TXT[fxLang];
-  var blocks=(cf.blocks||[]).map(function(b,bi){
+  var blocks=(Array.isArray(cf.blocks)?cf.blocks:[]).map(function(b,bi){
+    b=(b&&typeof b==='object')?b:{};
     var title=b.title||TYPE_L[fxLang][b.type]||'';
     return '<div class="cf-block" data-ci="'+ci+'" data-bi="'+bi+'" role="button" tabindex="0" title="'+esc(T.hint)+'">'
       +(title?'<div class="cf-bt">'+esc(title)+'</div>':'')
-      +'<div class="cf-bx">'+esc(b.text).replace(/\n/g,'<br>')+'</div>'
+      +'<div class="cf-bx">'+esc(b.text==null?'':String(b.text)).replace(/\n/g,'<br>')+'</div>'
       +'<span class="cf-ic" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span></div>';
   }).join('');
   return '<div class="fx-card cf-card"><div class="fx-nm"><span>'+esc(cf.name)+'<span class="cf-badge">'+esc(T.badge)+'</span></span><span class="fx-arrow">&#9662;</span></div>'
@@ -570,11 +598,15 @@ function fxRender(){
   var u=FXUI[fxLang];
   var q=$('fxQ').value.trim().toLowerCase();
   var open=FXDATA.filter(function(f){return (!q||f.name.s.indexOf(q)>-1||f.name.t.indexOf(q)>-1||f.name.py.toLowerCase().indexOf(q)>-1||f.items.some(function(it){return it.herb.s.indexOf(q)>-1||it.herb.t.indexOf(q)>-1||it.herb.py.toLowerCase().indexOf(q)>-1}))});
-  var closed=CFD.filter(function(cf){
-    if(!q)return true;
-    if(String(cf.name||'').toLowerCase().indexOf(q)>-1)return true;
-    return (cf.blocks||[]).some(function(b){return String(b.text||'').toLowerCase().indexOf(q)>-1});
-  });
+  var closed=[];
+  try{
+    closed=CFD.filter(function(cf){
+      if(!cf)return false;
+      if(!q)return true;
+      if(String(cf.name||'').toLowerCase().indexOf(q)>-1)return true;
+      return (Array.isArray(cf.blocks)?cf.blocks:[]).some(function(b){return String((b&&b.text)||'').toLowerCase().indexOf(q)>-1});
+    });
+  }catch(e){closed=[];if(window.console&&console.warn)console.warn('closed formula filter failed',e)}
   CFV=closed;
   var rows=[];
   open.forEach(function(f){rows.push({k:'o',f:f,letter:f.letter,py:f.py,nm:f.name.s})});
@@ -590,8 +622,10 @@ function fxRender(){
   $('fxCnt').textContent=(fxLang==='e'?(open.length+' '+u.cntA):('共 '+open.length+' '+u.cntA))+(closed.length?(' · '+L_TXT[fxLang].closed+' '+closed.length):'');
   var html='',cur='';
   rows.forEach(function(r){
+    var cardHtml='';
+    try{cardHtml=(r.k==='o'?fxCard(r.f):cfCard(r.cf,r.ci))}catch(e){if(window.console&&console.warn)console.warn('formula card skipped',r.nm,e);return}
     if(r.letter!==cur){cur=r.letter;html+='<h3 class="fx-letter" id="fxL'+cur+'">'+cur+'</h3>'}
-    html+=(r.k==='o'?fxCard(r.f):cfCard(r.cf,r.ci));
+    html+=cardHtml;
   });
   $('fxList').innerHTML=html||'<p class="fx-cnt">'+esc(u.noRes)+'</p>';
 }
@@ -607,19 +641,24 @@ function fxSyncClosed(){
   var pw=(window.__adminPasswordValue?window.__adminPasswordValue():'');
   if(!pw){
     fxPw='';fxLoaded=false;
-    if(CFD.length){CFD=[];fxRender()}
+    if(CFD.length){CFD=[];try{fxRender()}catch(e){}}
     return;
   }
   if(pw===fxPw&&(fxLoaded||fxFetching))return;
   fxPw=pw;fxFetching=true;
-  fetch('https://yenstcm.com/api/admin/formulas',{method:'GET',headers:{'X-Admin-Password':pw,'Accept':'application/json'}})
+  var fxFetch;
+  try{fxFetch=fetch('https://yenstcm.com/api/admin/formulas',{method:'GET',headers:{'X-Admin-Password':pw,'Accept':'application/json'}})}
+  catch(e){fxFetching=false;return}
+  fxFetch
     .then(function(r){if(r.status===401){var err401=new Error('closed formulas unauthorized');err401.fx401=true;throw err401}if(!r.ok)throw new Error('closed formulas unavailable');return r.json()})
     .then(function(j){
       fxFetching=false;
       if(fxPw!==pw)return;
-      if(j&&j.ok&&Array.isArray(j.formulas)){CFD=j.formulas.filter(function(x){return x&&x.name});fxLoaded=true;fxRender()}
+      try{
+        if(j&&j.ok&&Array.isArray(j.formulas)){CFD=fxSanitizeClosed(j.formulas);fxLoaded=true;fxRender()}
+      }catch(e){if(window.console&&console.warn)console.warn('closed formulas merge failed',e)}
     })
-    .catch(function(err){fxFetching=false;if(err&&err.fx401){fxPw='';fxLoaded=false;if(CFD.length){CFD=[];fxRender()}if(window.__adminForgetPassword)window.__adminForgetPassword()}});
+    .catch(function(err){fxFetching=false;if(err&&err.fx401){fxPw='';fxLoaded=false;if(CFD.length){CFD=[];try{fxRender()}catch(e){}}if(window.__adminForgetPassword)window.__adminForgetPassword()}});
 }
 window.fxAdminChanged=function(){fxSyncClosed()};
 window.initFormulas=function(){
@@ -652,8 +691,17 @@ window.initFormulas=function(){
       if(b)fxCopy(String(b.text||''));
     });
   }
-  fxApplyChrome();fxRender();fxSyncClosed();
+  fxApplyChrome();fxRender();
+  try{fxSyncClosed()}catch(e){if(window.console&&console.warn)console.warn('closed formulas sync failed',e)}
 };
+/* Cold-load fix: when the page is opened directly at #formulas (URL pasted into
+   the address bar or a new tab), the router in the first script runs showPage()
+   before this module has defined window.initFormulas, and no hashchange ever
+   fires afterwards — so initialize now if the formulas page is already active. */
+try{
+  var fxPageEl=$('formulasPage');
+  if(fxPageEl&&fxPageEl.classList.contains('active'))window.initFormulas();
+}catch(e){if(window.console&&console.warn)console.warn('formulas cold-load init failed',e)}
 })();
 </script>
 
