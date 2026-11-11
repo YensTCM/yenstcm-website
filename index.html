@@ -143,6 +143,13 @@
 .cf-bx{line-height:1.8}
 .cf-ic{position:absolute;top:10px;right:11px;color:var(--teal);opacity:.7}
 .cf-block:hover .cf-ic{opacity:1}
+.oblk{position:relative;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:11px 36px 11px 13px;margin-top:10px;cursor:pointer}
+.oblk:first-child{margin-top:0}
+.oblk:hover{border-color:color-mix(in srgb,var(--teal) 55%,var(--line))}
+.oblk:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.oblk:hover .cf-ic{opacity:1}
+.oblk .fx-sec{margin-top:0}
+.oblk>.fx-note:first-child{margin-top:0}
 .fx-toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);background:var(--teal-deep);color:#fff;padding:10px 24px;border-radius:999px;font-weight:700;font-size:.9rem;opacity:0;pointer-events:none;transition:opacity .25s ease,transform .25s ease;z-index:90}
 .fx-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
@@ -548,21 +555,24 @@ function fxSanitizeClosed(list){
   });
   return out;
 }
+var FXIC='<span class="cf-ic" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span>';
+function fxBlk(inner){return '<div class="oblk" role="button" tabindex="0" title="'+esc(L_TXT[fxLang].hint)+'">'+inner+FXIC+'</div>'}
 function fxCard(f){
   var u=FXUI[fxLang],i,s,items,notes;
   if(fxLang==='e'){
     items=f.items.map(function(it){s=esc(it.herb.py);if(it.latin)s+=' <span class="fx-lat">('+esc(it.latin)+')</span>';if(it.doseEn)s+=' '+esc(it.doseEn);if(it.group)s+='<span class="fx-grp">'+esc(u.grp)+'</span>';return '<div>'+s+'</div>'}).join('');
-    return '<div class="fx-card"><div class="fx-nm"><span>'+esc(f.name.py)+'</span><span class="fx-arrow">&#9662;</span></div><div class="fx-body"><div class="fx-items">'+items+'</div></div></div>';
+    return '<div class="fx-card"><div class="fx-nm"><span>'+esc(f.name.py)+'</span><span class="fx-arrow">&#9662;</span></div><div class="fx-body">'+fxBlk('<div class="fx-items">'+items+'</div>')+'</div></div>';
   }
   var L=fxLang;
   items=f.items.map(function(it){s=esc(it.herb[L])+' '+esc(it.dose[L]);if(it.group)s+='<span class="fx-grp">'+esc(u.grp)+'</span>';if(it.ref)s+='<span class="fx-ref">'+esc(u.ref)+' '+it.ref.value+esc(it.ref.unit)+'</span>';if(it.note&&it.note[L])s+='<div class="fx-note">'+esc(it.note[L])+'</div>';return '<div>'+s+'</div>'}).join('');
   notes=(f.notes[L]||[]).map(function(n){return '<div class="fx-note">'+esc(n)+'</div>'}).join('');
   return '<div class="fx-card"><div class="fx-nm"><span>'+esc(f.name[L])+'</span><span class="fx-arrow">&#9662;</span></div>'
     +'<div class="fx-meta">《'+esc(FXBOOKL[fxLang][f.book])+'》 · '+esc(f.chapter[L])+'</div>'
-    +'<div class="fx-body"><div class="fx-items">'+items+'</div>'
-    +(f.clause[L]?'<div class="fx-sec">'+esc(u.clause)+'</div><div class="fx-txt">'+esc(f.clause[L])+'</div>':'')
-    +(f.prep[L]?'<div class="fx-sec">'+esc(u.prep)+'</div><div class="fx-txt">'+esc(f.prep[L])+'</div>':'')
-    +notes+'</div></div>';
+    +'<div class="fx-body">'+fxBlk('<div class="fx-items">'+items+'</div>')
+    +(f.clause[L]?fxBlk('<div class="fx-sec">'+esc(u.clause)+'</div><div class="fx-txt">'+esc(f.clause[L])+'</div>'):'')
+    +(f.prep[L]?fxBlk('<div class="fx-sec">'+esc(u.prep)+'</div><div class="fx-txt">'+esc(f.prep[L])+'</div>'):'')
+    +(notes?fxBlk(notes):'')
+    +'</div></div>';
 }
 function cfCard(cf,ci){
   var T=L_TXT[fxLang];
@@ -588,6 +598,14 @@ function fxCopyFallback(text){
   document.body.appendChild(ta);ta.select();
   try{if(document.execCommand('copy'))fxCopyDone()}catch(e){}
   document.body.removeChild(ta);
+}
+function fxBlockText(el){
+  var c=el.cloneNode(true);
+  var ic=c.querySelector?c.querySelector('.cf-ic'):null;
+  if(ic&&ic.parentNode)ic.parentNode.removeChild(ic);
+  var h=c.innerHTML.replace(/<br\s*\/?>/gi,'\n').replace(/<div class="fx-note"/g,'\n<div class="fx-note"').replace(/<span/g,' <span').replace(/<\/(?:div|p)>/gi,'\n').replace(/<[^>]+>/g,'');
+  var ta=document.createElement('textarea');ta.innerHTML=h;
+  return ta.value.replace(/[ \t]{2,}/g,' ').replace(/ +\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
 }
 function fxCopy(text){
   if(!text)return;
@@ -670,6 +688,12 @@ window.initFormulas=function(){
     $('fxCloseAll').addEventListener('click',function(){document.querySelectorAll('#formulasPage .fx-card.open').forEach(function(c){c.classList.remove('open')})});
     $('fxTopBtn').addEventListener('click',function(){$('fxToolbar').scrollIntoView({behavior:'smooth',block:'start'});setTimeout(function(){$('fxQ').focus()},400)});
     $('fxList').addEventListener('click',function(e){
+      var ob=e.target.closest?e.target.closest('.oblk'):null;
+      if(ob){
+        e.stopPropagation();
+        fxCopy(fxBlockText(ob));
+        return;
+      }
       var blk=e.target.closest?e.target.closest('.cf-block'):null;
       if(blk){
         e.stopPropagation();
@@ -683,6 +707,12 @@ window.initFormulas=function(){
     });
     $('fxList').addEventListener('keydown',function(e){
       if(e.key!=='Enter'&&e.key!==' ')return;
+      var ob=e.target.closest?e.target.closest('.oblk'):null;
+      if(ob){
+        e.preventDefault();
+        fxCopy(fxBlockText(ob));
+        return;
+      }
       var blk=e.target.closest?e.target.closest('.cf-block'):null;
       if(!blk)return;
       e.preventDefault();
